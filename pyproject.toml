@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "survey-animate"
+version = "0.1.0"
+description = "Frame-sequence to video engine for surveying and remote sensing: encode survey-flow frame manifests (or any PNG sequence) into mapped.earth-style MP4 reels, GIFs, and WebM clips with presets, burned-in timestamps, and provenance sidecars"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "crieck2010" }]
+keywords = ["surveying", "remote-sensing", "animation", "video", "ffmpeg", "dataviz", "reels"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Multimedia :: Video",
+]
+# The engine core (manifest handling, presets, PNG codec, pipeline) is
+# stdlib+numpy on purpose. Encoding needs an ffmpeg binary: prefer the
+# imageio-ffmpeg wheel (bundles a static binary, no system install), and
+# fall back to a system ffmpeg on PATH. Text overlays need matplotlib.
+dependencies = ["numpy>=1.22"]
+
+[project.optional-dependencies]
+video = ["imageio>=2.31", "imageio-ffmpeg>=0.4.9"]
+text = ["matplotlib>=3.5"]
+full = ["imageio>=2.31", "imageio-ffmpeg>=0.4.9", "matplotlib>=3.5"]
+dev = ["build", "pytest"]
+
+[project.scripts]
+survey-animate = "animate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/crieck2010/survey-animate"
+Repository = "https://github.com/crieck2010/survey-animate"
+Issues = "https://github.com/crieck2010/survey-animate/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
