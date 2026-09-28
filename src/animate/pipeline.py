@@ -21,6 +21,8 @@ from animate import _png
 from animate.encode import (EncoderUnavailable, encode, format_for_path,
                             resolve_ffmpeg)
 from animate.manifest import Manifest, frames_from_dir, read_manifest
+from animate.motion import (MotionSpec, blend_frames, blend_stamps,
+                            coerce_motion, motion_filter)
 from animate.overlays import TextOverlayUnavailable, burn_timestamps, make_title_card
 from animate.presets import Preset, get_preset, resize_pad
 from animate.provenance import sha256_file, write_sidecar
@@ -81,6 +83,8 @@ def render_video(source,
                  subtitle: str = "",
                  title_seconds: float = 2.0,
                  pad_color: tuple = (0, 0, 0),
+                 motion=None,
+                 audio_path: Optional[str] = None,
                  progress: Optional[Callable[[int], None]] = None,
                  ffmpeg_exe: Optional[str] = None) -> VideoResult:
     """Render ``source`` (manifest path, PNG directory, or Manifest) to video.
@@ -88,6 +92,18 @@ def render_video(source,
     Returns a :class:`VideoResult`. Raises :class:`EncoderUnavailable`
     when no ffmpeg backend exists, and the manifest errors from
     :mod:`animate.manifest` on bad input.
+
+    ``motion`` is ``None``, a :class:`animate.motion.MotionSpec`, or a
+    dict of its fields: Ken Burns zoom/pan drift (applied at encode via
+    ffmpeg's ``zoompan``) plus optional crossfade blending between data
+    frames (``smooth``/``smooth_steps``, computed in numpy). If the
+    ffmpeg binary lacks ``zoompan``, the clip encodes without drift and
+    the sidecar records why.
+
+    ``audio_path`` muxes an audio file (MP3/WAV/…) as a second input,
+    encoded to AAC (MP4) / Opus (WebM) and cut to the video length with
+    ``-shortest``. GIF has no audio track: the file is ignored and the
+    sidecar notes it. A missing path raises ``FileNotFoundError``.
     """
     pre = get_preset(preset)
     fmt = fmt or format_for_path(out_path)
@@ -103,9 +119,30 @@ def render_video(source,
     for mf in manifest.frames:
         frames.append(resize_pad(_load_frame(mf.png_path),
                                  pre.width, pre.height, pad_color=pad_color))
+    stamps: List[str] = [mf.timestamp_iso for mf in manifest.frames]
 
     params: Dict = {"crf": crf, "pad_color": list(pad_color),
                     "timestamp_position": timestamp_position}
+
+    # Cinematic motion: validate + normalize the spec up front so bad
+    # values fail fast, before any encoding work.
+    motion_spec: Optional[MotionSpec] = coerce_motion(motion)
+    if motion_spec is not None:
+        params["motion"] = motion_spec.to_dict()
+
+    # Smooth crossfade blending between data frames (numpy, deterministic).
+    if motion_spec is not None and motion_spec.blending:
+        frames = blend_frames(frames, motion_spec.smooth_steps)
+        stamps = blend_stamps(stamps, motion_spec.smooth_steps)
+
+    # Audio: fail fast on a missing file; GIF cannot carry audio.
+    if audio_path is not None and not os.path.isfile(audio_path):
+        raise FileNotFoundError(f"audio file not found: {audio_path}")
+    if audio_path is not None:
+        params["audio"] = os.path.basename(audio_path)
+        if fmt == "gif":
+            params["audio_skipped"] = "gif has no audio track"
+            audio_path = None
 
     # Title card first (so it plays before the animation).
     if title:
@@ -120,23 +157,42 @@ def render_video(source,
 
     # Timestamps (skip title-card frames — they have no model time).
     if burn_timestamps_:
-        n_cards = len(frames) - len(manifest.frames)
-        stamps = ([""] * n_cards +
-                  [mf.timestamp_iso for mf in manifest.frames])
+        n_cards = len(frames) - len(stamps)
+        card_stamps = [""] * n_cards + stamps
         try:
-            frames = burn_timestamps(frames, stamps,
+            frames = burn_timestamps(frames, card_stamps,
                                      position=timestamp_position)
         except TextOverlayUnavailable:
             params["timestamps_skipped"] = "matplotlib not installed"
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    video_filters: List[str] = []
+    if motion_spec is not None and motion_spec.animated:
+        mfilt = motion_filter(motion_spec, pre.width, pre.height,
+                              len(frames))
+        if mfilt:
+            video_filters.append(mfilt)
     encode_kwargs: Dict = {"fps": fps, "ffmpeg_exe": ffmpeg_exe,
-                           "progress": progress}
+                           "progress": progress,
+                           "video_filters": video_filters}
     if fmt in ("mp4", "webm"):
         encode_kwargs["crf"] = crf
         encode_kwargs["width"] = pre.width
         encode_kwargs["height"] = pre.height
-    encode(frames, out_path, fmt, **encode_kwargs)
+    if audio_path is not None:
+        encode_kwargs["audio_path"] = audio_path
+    try:
+        encode(frames, out_path, fmt, **encode_kwargs)
+    except RuntimeError as exc:
+        # Ancient/minimal ffmpeg builds may lack zoompan; degrade to a
+        # static clip rather than failing the whole render.
+        if video_filters and "No such filter" in str(exc):
+            params["motion_skipped"] = ("ffmpeg lacks the zoompan filter; "
+                                        "encoded without drift")
+            encode_kwargs["video_filters"] = []
+            encode(frames, out_path, fmt, **encode_kwargs)
+        else:
+            raise
 
     try:
         source_hash = sha256_file(manifest.source_path) \

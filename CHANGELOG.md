@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-28
+
+### Added
+- **Cinematic motion** (`animate.motion.MotionSpec`, `render_video(..., motion=...)`):
+  Ken Burns zoom (`in`/`out` with a 0–1 speed → 1.0–1.6× total zoom) and
+  eight-direction pan drift (0–1 speed → 0–30% viewport travel), applied
+  at encode time via ffmpeg's `zoompan` filter (smooth sub-pixel
+  resampling, no per-frame Python cost; works for MP4, WebM, and GIF).
+  Pan-only mode holds a slight headroom zoom so the drifting window
+  never shows edges. `motion=` accepts a `MotionSpec` or a plain dict
+  (validated up front — bad values fail before any encoding). If the
+  ffmpeg binary lacks `zoompan`, the clip encodes without drift and the
+  sidecar records `motion_skipped` instead of failing.
+- **Smooth crossfade blending** (`MotionSpec(smooth=True, smooth_steps=n)`):
+  `n` linearly crossfaded frames are inserted between consecutive data
+  frames in numpy (deterministic, ffmpeg-independent), so a monthly
+  time step melts into the next. Blended frames inherit the previous
+  frame's burned-in timestamp.
+- **Audio muxing** (`render_video(..., audio_path=...)` and
+  `encode_mp4`/`encode_webm`): mux an MP3/WAV/… as AAC (MP4) / Opus
+  (WebM) with `-shortest` (audio cut to video length). Missing files
+  raise `FileNotFoundError` before encoding; GIF ignores audio and
+  notes `audio_skipped` in the sidecar (GIF has no audio track).
+- Provenance: sidecar `params` now records `motion` and `audio`
+  (basename only) when used.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added

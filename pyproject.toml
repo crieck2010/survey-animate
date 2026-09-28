@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "survey-animate"
-version = "0.1.0"
+version = "0.2.0"
 description = "Frame-sequence to video engine for surveying and remote sensing: encode survey-flow frame manifests (or any PNG sequence) into mapped.earth-style MP4 reels, GIFs, and WebM clips with presets, burned-in timestamps, and provenance sidecars"
 readme = "README.md"
 requires-python = ">=3.9"

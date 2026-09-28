@@ -70,6 +70,30 @@ print(result.video_path, result.sidecar_path)
 Input frames are aspect-fit into the preset canvas (bilinear rescale +
 padding) — never stretched or cropped. See [docs/PRESETS.md](docs/PRESETS.md).
 
+## Cinematic motion and audio
+
+```python
+from animate import MotionSpec, render_video
+
+render_video("frames/manifest.json", "out/reel.mp4",
+             motion=MotionSpec(zoom="in", zoom_speed=0.4,
+                               pan="up-right", pan_speed=0.3,
+                               smooth=True, smooth_steps=3),
+             audio_path="music/track.mp3")
+```
+
+- **Zoom/pan drift** — `zoom="in"|"out"|"off"`, `pan` one of eight
+  compass directions or `"off"`; each has a `0.0–1.0` speed slider.
+  Applied via ffmpeg's `zoompan` (sub-pixel, encoder-side).
+- **Smooth transitions** — `smooth=True` crossfade-blends consecutive
+  frames (`smooth_steps` per gap) so monthly time steps melt together.
+- **Audio** — any ffmpeg-readable audio file muxed as AAC/Opus, cut to
+  the video length. GIF has no audio track and skips it with a sidecar
+  note.
+- `motion=` also accepts a plain dict with the same field names; both
+  are validated up front. Motion/audio are recorded in the
+  `.provenance.json` sidecar.
+
 ## How it works
 
 ```
@@ -100,7 +124,8 @@ directory of PNGs ─────────┘        │                     
 | `animate.encode` | `encode_mp4/gif/webm(...)`, `encode(frames, out, fmt)`, `resolve_ffmpeg()` |
 | `animate.overlays` | `burn_timestamps(frames, stamps)`, `make_title_card(...)` |
 | `animate.provenance` | `write_sidecar(video_path, ...)` |
-| `animate.pipeline` | `render_video(source, out_path, preset=..., ...)` → `VideoResult` |
+| `animate.motion` | `MotionSpec(...)`, `coerce_motion(m)`, `motion_filter(...)`, `blend_frames(...)` |
+| `animate.pipeline` | `render_video(source, out_path, preset=..., motion=..., audio_path=...)` → `VideoResult` |
 
 ## Interoperability
 

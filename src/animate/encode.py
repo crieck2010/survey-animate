@@ -118,10 +118,17 @@ def encode_mp4(frames: Iterable[np.ndarray],
                pix_fmt: str = "yuv420p",
                width: Optional[int] = None,
                height: Optional[int] = None,
+               video_filters: Iterable[str] = (),
+               audio_path: Optional[str] = None,
                ffmpeg_exe: Optional[str] = None,
                progress: Optional[Callable[[int], None]] = None) -> str:
     """Encode RGB frames to MP4 (H.264). ``width``/``height`` default to the
-    first frame's shape. Dimensions are rounded up to even for yuv420p."""
+    first frame's shape. Dimensions are rounded up to even for yuv420p.
+
+    ``video_filters`` are extra ``-vf`` filters (e.g. a zoompan motion
+    filter) applied after the scale. ``audio_path`` muxes an audio file
+    (MP3/WAV/…) as AAC, cut to the video length with ``-shortest``.
+    """
     ffmpeg_exe = ffmpeg_exe or resolve_ffmpeg()
     frames = iter(frames)
     try:
@@ -139,9 +146,12 @@ def encode_mp4(frames: Iterable[np.ndarray],
     codec = resolve_h264_codec(ffmpeg_exe)
     args = ["-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{fw}x{fh}", "-r", str(float(fps)), "-i", "-"]
+    if audio_path:
+        args += ["-i", audio_path]
     vf = []
     if (fw, fh) != (width, height):
         vf.append(f"scale={width}:{height}")
+    vf.extend(video_filters)
     if pix_fmt:
         args += ["-pix_fmt", pix_fmt]
     if vf:
@@ -149,6 +159,9 @@ def encode_mp4(frames: Iterable[np.ndarray],
     args += ["-c:v", codec]
     if codec == "libx264":
         args += ["-crf", str(int(crf)), "-preset", "medium"]
+    if audio_path:
+        args += ["-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "160k",
+                 "-shortest"]
     args += ["-movflags", "+faststart", out_path]
     _run(ffmpeg_exe, args, _frame_bytes(_all(), fw, fh, progress))
     return out_path
@@ -158,9 +171,13 @@ def encode_gif(frames: Iterable[np.ndarray],
                out_path: str,
                fps: float = 10.0,
                width: Optional[int] = None,
+               video_filters: Iterable[str] = (),
                ffmpeg_exe: Optional[str] = None,
                progress: Optional[Callable[[int], None]] = None) -> str:
-    """Encode RGB frames to GIF with a two-pass global palette (quality)."""
+    """Encode RGB frames to GIF with a two-pass global palette (quality).
+
+    ``video_filters`` (e.g. a zoompan motion filter) are applied before
+    the palette pass so the motion is baked into the palette."""
     ffmpeg_exe = ffmpeg_exe or resolve_ffmpeg()
     materialized = [np.asarray(f, dtype=np.uint8) for f in frames]
     if not materialized:
@@ -171,16 +188,20 @@ def encode_gif(frames: Iterable[np.ndarray],
     width, height = even_dims(width, height)
     with tempfile.TemporaryDirectory(prefix="animate_gif_") as tmp:
         palette = os.path.join(tmp, "palette.png")
+        motion_vf = ",".join(video_filters)
+        base_vf = f"scale={width}:{height}"
+        if motion_vf:
+            base_vf += f",{motion_vf}"
         _run(ffmpeg_exe,
              ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{fw}x{fh}",
               "-r", str(float(fps)), "-i", "-",
-              "-vf", f"scale={width}:{height},palettegen", palette],
+              "-vf", f"{base_vf},palettegen", palette],
              _frame_bytes(iter(materialized), fw, fh, None))
         _run(ffmpeg_exe,
              ["-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{fw}x{fh}",
               "-r", str(float(fps)), "-i", "-",
               "-i", palette, "-lavfi",
-              f"scale={width}:{height} [x]; [x][1:v] paletteuse",
+              f"{base_vf} [x]; [x][1:v] paletteuse",
               "-r", str(float(fps)), out_path],
              _frame_bytes(iter(materialized), fw, fh, progress))
     return out_path
@@ -192,9 +213,12 @@ def encode_webm(frames: Iterable[np.ndarray],
                 crf: int = 18,
                 width: Optional[int] = None,
                 height: Optional[int] = None,
+                video_filters: Iterable[str] = (),
+                audio_path: Optional[str] = None,
                 ffmpeg_exe: Optional[str] = None,
                 progress: Optional[Callable[[int], None]] = None) -> str:
-    """Encode RGB frames to WebM (VP9)."""
+    """Encode RGB frames to WebM (VP9). ``video_filters`` and
+    ``audio_path`` behave as in :func:`encode_mp4` (Opus audio)."""
     ffmpeg_exe = ffmpeg_exe or resolve_ffmpeg()
     frames = iter(frames)
     try:
@@ -211,13 +235,20 @@ def encode_webm(frames: Iterable[np.ndarray],
 
     args = ["-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{fw}x{fh}", "-r", str(float(fps)), "-i", "-"]
+    if audio_path:
+        args += ["-i", audio_path]
     vf = []
     if (fw, fh) != (width, height):
         vf.append(f"scale={width}:{height}")
+    vf.extend(video_filters)
     if vf:
         args += ["-vf", ",".join(vf)]
     args += ["-c:v", "libvpx-vp9", "-crf", str(int(crf)), "-b:v", "0",
-             "-pix_fmt", "yuv420p", out_path]
+             "-pix_fmt", "yuv420p"]
+    if audio_path:
+        args += ["-map", "0:v", "-map", "1:a", "-c:a", "libopus", "-b:a",
+                 "128k", "-shortest"]
+    args += [out_path]
     _run(ffmpeg_exe, args, _frame_bytes(_all(), fw, fh, progress))
     return out_path
 

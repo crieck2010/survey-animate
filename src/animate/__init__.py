@@ -11,12 +11,13 @@ matplotlib (Agg); everything else works without it.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "__version__",
     "Manifest",
     "ManifestFrame",
+    "MotionSpec",
     "Preset",
     "VideoResult",
     "read_manifest",
@@ -36,4 +37,7 @@ def __getattr__(name: str):
     if name in ("VideoResult", "render_video"):
         from animate import pipeline as _pl
         return getattr(_pl, name)
+    if name == "MotionSpec":
+        from animate import motion as _mo
+        return _mo.MotionSpec
     raise AttributeError(f"module 'animate' has no attribute {name!r}")
