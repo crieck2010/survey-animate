@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-29
+
+### Added
+- **Minimum data duration** (`render_video(..., min_duration_s=...)`):
+  holds each data frame by repetition so the data portion of a reel
+  lasts at least `min_duration_s` seconds — with `n` data frames at
+  `fps`, each frame repeats `k = ceil(ceil(min_duration_s * fps) / n)`
+  times. Applied after blending and before the title-card prepend, so
+  the title card (when enabled) keeps its fixed length on top; the
+  per-frame timestamp list is repeated to match, keeping burned
+  timestamps correct. `0` (default) disables the hold — behavior
+  unchanged. Recorded in the sidecar provenance (`min_duration_s`,
+  `frame_hold`).
+
 ## [0.2.0] - 2026-09-28
 
 ### Added

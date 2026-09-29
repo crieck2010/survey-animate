@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence
@@ -82,6 +83,7 @@ def render_video(source,
                  title: str = "",
                  subtitle: str = "",
                  title_seconds: float = 2.0,
+                 min_duration_s: float = 0.0,
                  pad_color: tuple = (0, 0, 0),
                  motion=None,
                  audio_path: Optional[str] = None,
@@ -104,6 +106,16 @@ def render_video(source,
     encoded to AAC (MP4) / Opus (WebM) and cut to the video length with
     ``-shortest``. GIF has no audio track: the file is ignored and the
     sidecar notes it. A missing path raises ``FileNotFoundError``.
+
+    ``min_duration_s`` holds each data frame (by repetition) so the
+    *data* portion of the reel lasts at least that many seconds: with
+    ``n`` data frames at ``fps``, each frame repeats
+    ``k = ceil(ceil(min_duration_s * fps) / n)`` times. Applied after
+    blending and before the title-card prepend, so the title card (when
+    enabled) keeps its fixed length on top of the held data. The
+    per-frame timestamp list is repeated to match, so burned timestamps
+    stay correct. ``0`` (default) disables the hold — behavior
+    unchanged. Negative values raise ``ValueError``.
     """
     pre = get_preset(preset)
     fmt = fmt or format_for_path(out_path)
@@ -134,6 +146,24 @@ def render_video(source,
     if motion_spec is not None and motion_spec.blending:
         frames = blend_frames(frames, motion_spec.smooth_steps)
         stamps = blend_stamps(stamps, motion_spec.smooth_steps)
+
+    # Minimum data duration: hold each data frame by repeating it k
+    # times so short reels still play at least min_duration_s seconds
+    # of *data*. Applied after blending and BEFORE the title-card
+    # prepend, so the card (when enabled) keeps its fixed length on
+    # top of the held data. Stamps are repeated to match, keeping
+    # burned timestamps correct.
+    if min_duration_s < 0:
+        raise ValueError(
+            f"min_duration_s must be >= 0, got {min_duration_s!r}")
+    if min_duration_s > 0:
+        need = math.ceil(float(min_duration_s) * fps)
+        if len(frames) < need:
+            k = math.ceil(need / len(frames))
+            frames = [f for f in frames for _ in range(k)]
+            stamps = [s for s in stamps for _ in range(k)]
+            params["min_duration_s"] = float(min_duration_s)
+            params["frame_hold"] = k
 
     # Audio: fail fast on a missing file; GIF cannot carry audio.
     if audio_path is not None and not os.path.isfile(audio_path):
